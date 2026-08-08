@@ -7,10 +7,13 @@ import org.stock_trading.market_service.dto.CreateStockRequest;
 import org.stock_trading.market_service.dto.StockResponse;
 import org.stock_trading.market_service.dto.UpdatePriceRequest;
 import org.stock_trading.market_service.entity.Stock;
+import org.stock_trading.market_service.event.PriceUpdatedEvent;
 import org.stock_trading.market_service.exception.DuplicateStockException;
 import org.stock_trading.market_service.exception.StockNotFoundException;
+import org.stock_trading.market_service.kafka.KafkaProducer;
 import org.stock_trading.market_service.repository.StockRepository;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Service
@@ -22,9 +25,13 @@ public class StockServiceImpl implements StockService {
     @Autowired
     private final StockCacheService cacheService;
 
-    public StockServiceImpl(StockRepository repository, StockCacheService cacheService) {
+    @Autowired
+    private final KafkaProducer kafkaProducer;
+
+    public StockServiceImpl(StockRepository repository, StockCacheService cacheService, KafkaProducer kafkaProducer) {
         this.repository = repository;
         this.cacheService = cacheService;
+        this.kafkaProducer = kafkaProducer;
     }
 
     @Override
@@ -56,16 +63,33 @@ public class StockServiceImpl implements StockService {
 
         String cacheKey = "stock:" + symbol.toUpperCase();
 
-        StockResponse cached = cacheService.get(cacheKey);
-        if (cached != null) {
-            System.out.println("Fetching from redis");
-            return cached;
+        try{
+            StockResponse cached = cacheService.get(cacheKey);
+            if (cached != null) {
+                System.out.println("Fetching from redis");
+                return cached;
+            }
+        } catch (Exception e) {
+
         }
+
 
         Stock stock = repository.findBySymbol(symbol).orElseThrow(() -> new StockNotFoundException("Stock not found"));
 
         StockResponse response = mapToResponse(stock);
-        cacheService.save(cacheKey,response);
+        // 3. Try saving result to Redis
+        try {
+
+            cacheService.save(cacheKey, response);
+
+            System.out.println("Saving in Redis");
+
+        } catch (Exception e) {
+
+            System.out.println(
+                    "Redis unavailable. Skipping cache."
+            );
+        }
         System.out.println("Saving in redis");
         return mapToResponse(stock);
     }
@@ -77,11 +101,21 @@ public class StockServiceImpl implements StockService {
 
         Stock stock = repository.findBySymbol(symbol).orElseThrow(() -> new StockNotFoundException("Stock not found"));
 
+        BigDecimal oldPrice = stock.getCurrentPrice();
         stock.setCurrentPrice(request.getCurrentPrice());
 
-        repository.save(stock);
+        Stock updated = repository.save(stock);
         StockResponse response = mapToResponse(stock);
         cacheService.save(cacheKey,response);
+
+        PriceUpdatedEvent event = new PriceUpdatedEvent(
+                updated.getSymbol(),
+                oldPrice,
+                updated.getCurrentPrice(),
+                updated.getUpdatedAt()
+        );
+
+        kafkaProducer.publishPriceUpdated(event);
         return response;
     }
 
