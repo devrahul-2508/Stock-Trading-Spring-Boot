@@ -1,16 +1,21 @@
 package org.stock_trading.order_service.event;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
+import org.stock_trading.order_service.service.OrderService;
 
 @Service
+@RequiredArgsConstructor
 @Slf4j
 public class OrderPlacedConsumer {
 
+    private final OrderService orderService;
+
     @KafkaListener(
             topics = "order-placed",
-            groupId = "order-service"
+            groupId = "order-execution-service"
     )
     public void consume(OrderPlacedEvent event) {
 
@@ -23,5 +28,8 @@ public class OrderPlacedConsumer {
                 event.getQuantity(),
                 event.getPrice()
         );
+
+        orderService.executeOrder(event.getOrderId());
+
     }
 }

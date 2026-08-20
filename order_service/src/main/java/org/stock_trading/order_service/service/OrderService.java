@@ -7,7 +7,9 @@ import org.stock_trading.order_service.dto.CreateOrderRequest;
 import org.stock_trading.order_service.dto.OrderResponse;
 import org.stock_trading.order_service.entity.Order;
 import org.stock_trading.order_service.enums.OrderStatus;
+import org.stock_trading.order_service.event.OrderExecutedEvent;
 import org.stock_trading.order_service.event.OrderPlacedEvent;
+import org.stock_trading.order_service.kafka.OrderExecutedProducer;
 import org.stock_trading.order_service.kafka.OrderKafkaProducer;
 import org.stock_trading.order_service.repository.OrderRepository;
 
@@ -21,6 +23,7 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final OrderKafkaProducer orderKafkaProducer;
+    private final OrderExecutedProducer orderExecutedProducer;
 
     public OrderResponse createOrder(
             Long userId,
@@ -56,6 +59,39 @@ public class OrderService {
     public List<OrderResponse> getUserOrders(Long userId){
 
         return orderRepository.findByUserIdOrderByCreatedAtDesc(userId).stream().map(this::mapToResponse).collect(Collectors.toList());
+    }
+
+    public OrderResponse executeOrder(Long orderId) {
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() ->
+                        new RuntimeException("Order not found"));
+
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new RuntimeException(
+                    "Order is not in PENDING state"
+            );
+        }
+
+        // For now, execution price = order price
+        order.setStatus(OrderStatus.EXECUTED);
+        order.setExecutedAt(LocalDateTime.now());
+
+        Order savedOrder = orderRepository.save(order);
+
+        OrderExecutedEvent event = new OrderExecutedEvent(
+                savedOrder.getId(),
+                savedOrder.getUserId(),
+                savedOrder.getSymbol(),
+                savedOrder.getOrderType().name(),
+                savedOrder.getQuantity(),
+                savedOrder.getPrice(),
+                savedOrder.getExecutedAt()
+        );
+
+        orderExecutedProducer.publish(event);
+
+        return mapToResponse(savedOrder);
     }
 
     OrderResponse mapToResponse(Order order){
