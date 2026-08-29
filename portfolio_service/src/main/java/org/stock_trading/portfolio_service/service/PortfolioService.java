@@ -3,17 +3,21 @@ package org.stock_trading.portfolio_service.service;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.stock_trading.portfolio_service.dto.HoldingResponse;
+import org.stock_trading.portfolio_service.dto.PortfolioResponse;
 import org.stock_trading.portfolio_service.entity.Holding;
 import org.stock_trading.portfolio_service.event.OrderExecutedEvent;
 import org.stock_trading.portfolio_service.repository.HoldingRepository;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class PortfolioService {
 
     private final HoldingRepository holdingRepository;
+    private final PortfolioCacheService cacheService;
 
     @Transactional
     public void processOrder(OrderExecutedEvent event) {
@@ -88,7 +92,11 @@ public class PortfolioService {
             holding.setAverageBuyPrice(newAveragePrice);
         }
 
-        holdingRepository.save(holding);
+      Holding savedHolding =  holdingRepository.save(holding);
+
+//        cacheService.save(
+//                savedHolding.getUserId(),
+//                mapToResponse(savedHolding));
     }
 
     private void processSell(OrderExecutedEvent event) {
@@ -119,6 +127,9 @@ public class PortfolioService {
         if (remainingQuantity == 0) {
 
             holdingRepository.delete(holding);
+            cacheService.delete(
+                    event.getUserId()
+            );
 
         } else {
 
@@ -135,7 +146,62 @@ public class PortfolioService {
                     remainingInvested
             );
 
-            holdingRepository.save(holding);
+           Holding savedHolding = holdingRepository.save(holding);
+         //  cacheService.save(savedHolding.getUserId(),savedHolding.getSymbol(),mapToResponse(savedHolding));
         }
     }
-}
+
+    private HoldingResponse mapToResponse(Holding holding){
+        return new HoldingResponse(
+                holding.getId(),
+                holding.getUserId(),
+                holding.getSymbol(),
+                holding.getQuantity(),
+                holding.getAverageBuyPrice(),
+                holding.getInvestedAmount()
+        );
+    }
+
+    public PortfolioResponse getPortfolio(Long userId) {
+
+        try{
+            PortfolioResponse cached =
+                    cacheService.get(userId);
+            if(cached!=null){
+                return cached;
+            }
+        }catch (Exception e){
+            System.out.println(e.getMessage());
+        }
+
+
+
+
+        List<Holding> holdings = holdingRepository.findByUserId(userId);
+
+        PortfolioResponse portfolioResponse = buildPortfolioResponse(userId,holdings);
+        try{
+            cacheService.save(userId,portfolioResponse);
+        }catch (Exception e){
+            System.out.println(e.getMessage());
+
+        }
+
+        return portfolioResponse;
+
+    }
+
+    PortfolioResponse buildPortfolioResponse(Long userId,List<Holding> holdings){
+        List<HoldingResponse> holdingResponses = holdings.stream().map(this::mapToResponse).toList();
+
+        BigDecimal totalInvested = holdings.stream().map(Holding::getInvestedAmount).reduce(BigDecimal.ZERO,BigDecimal::add);
+
+        return new PortfolioResponse(
+                userId,
+                holdingResponses,
+                totalInvested,
+                totalInvested,
+                BigDecimal.ZERO
+        );
+    }
+    }
