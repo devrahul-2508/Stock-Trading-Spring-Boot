@@ -1,30 +1,26 @@
 package org.stock_trading.portfolio_service.kafka;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 import org.stock_trading.portfolio_service.event.OrderExecutedEvent;
-import org.stock_trading.portfolio_service.service.PortfolioService;
 
-@Service
+@Component
 @RequiredArgsConstructor
-@Slf4j
 public class OrderExecutedConsumer {
-
-    private final PortfolioService portfolioService;
 
     @KafkaListener(
             topics = "order-executed",
-            groupId = "portfolio-service"
+            groupId = "portfolio-order-service",
+            containerFactory = "orderExecutedKafkaListenerContainerFactory"
     )
-    public void consume(OrderExecutedEvent event){
-        log.info(
-                "OrderExecuted received: orderId={}, userId={}, symbol={}",
-                event.getOrderId(),
-                event.getUserId(),
-                event.getSymbol()
+    public void consume(OrderExecutedEvent event) {
+
+        System.out.println(
+                "Order executed received: " + event
         );
-        portfolioService.processOrder(event);
+
+        // Next:
+        // update/create holding
     }
 }

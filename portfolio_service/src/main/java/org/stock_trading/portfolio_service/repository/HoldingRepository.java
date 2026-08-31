@@ -14,4 +14,6 @@ public interface  HoldingRepository extends JpaRepository<Holding,Long> {
     );
 
     List<Holding> findByUserId(Long userId);
+
+    List<Holding> findBySymbol(String symbol);
 }

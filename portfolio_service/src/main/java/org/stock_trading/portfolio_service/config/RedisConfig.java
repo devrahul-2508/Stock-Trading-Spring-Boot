@@ -9,6 +9,7 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.stock_trading.portfolio_service.dto.HoldingResponse;
 import org.stock_trading.portfolio_service.dto.PortfolioResponse;
+import org.stock_trading.portfolio_service.dto.StockResponse;
 
 @Configuration
 public class RedisConfig {
@@ -22,6 +23,28 @@ public class RedisConfig {
 
         JacksonJsonRedisSerializer<PortfolioResponse> serializer =
                 new JacksonJsonRedisSerializer<>(PortfolioResponse.class);
+
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(serializer);
+        template.setHashKeySerializer(new StringRedisSerializer());
+        template.setHashValueSerializer(serializer);
+
+        template.afterPropertiesSet();
+
+        return template;
+    }
+
+    @Bean
+    public RedisTemplate<String, StockResponse> stockRedisTemplate(
+            RedisConnectionFactory connectionFactory) {
+
+        RedisTemplate<String, StockResponse> template =
+                new RedisTemplate<>();
+
+        template.setConnectionFactory(connectionFactory);
+
+        JacksonJsonRedisSerializer<StockResponse> serializer =
+                new JacksonJsonRedisSerializer<>(StockResponse.class);
 
         template.setKeySerializer(new StringRedisSerializer());
         template.setValueSerializer(serializer);
