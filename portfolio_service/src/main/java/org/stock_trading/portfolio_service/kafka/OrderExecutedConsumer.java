@@ -4,11 +4,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import org.stock_trading.portfolio_service.event.OrderExecutedEvent;
+import org.stock_trading.portfolio_service.service.PortfolioService;
 
 @Component
 @RequiredArgsConstructor
 public class OrderExecutedConsumer {
 
+    private final PortfolioService portfolioService;
     @KafkaListener(
             topics = "order-executed",
             groupId = "portfolio-order-service",
@@ -22,5 +24,7 @@ public class OrderExecutedConsumer {
 
         // Next:
         // update/create holding
+        portfolioService.processOrder(event);
+
     }
 }

@@ -6,9 +6,11 @@ import org.springframework.stereotype.Service;
 import org.stock_trading.portfolio_service.dto.HoldingResponse;
 import org.stock_trading.portfolio_service.dto.PortfolioResponse;
 import org.stock_trading.portfolio_service.entity.Holding;
+import org.stock_trading.portfolio_service.entity.ProcessedOrder;
 import org.stock_trading.portfolio_service.event.OrderExecutedEvent;
 import org.stock_trading.portfolio_service.event.PriceUpdatedEvent;
 import org.stock_trading.portfolio_service.repository.HoldingRepository;
+import org.stock_trading.portfolio_service.repository.ProcessedOrderRepository;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -23,6 +25,8 @@ public class PortfolioService {
 
     private final PortfolioPriceCacheService portfolioPriceCacheService;
 
+    private final ProcessedOrderRepository processedOrderRepository;
+
 
     // ============================================================
     // ORDER EXECUTION
@@ -30,6 +34,16 @@ public class PortfolioService {
 
     @Transactional
     public void processOrder(OrderExecutedEvent event) {
+
+        // Idempotency check
+        if (processedOrderRepository.existsById(event.getOrderId())) {
+
+            System.out.println(
+                    "Order already processed: " + event.getOrderId()
+            );
+
+            return;
+        }
 
         if ("BUY".equalsIgnoreCase(event.getOrderType())) {
 
@@ -46,6 +60,11 @@ public class PortfolioService {
                             + event.getOrderType()
             );
         }
+
+        // Mark the order as processed
+        processedOrderRepository.save(
+                new ProcessedOrder(event.getOrderId())
+        );
     }
 
 
