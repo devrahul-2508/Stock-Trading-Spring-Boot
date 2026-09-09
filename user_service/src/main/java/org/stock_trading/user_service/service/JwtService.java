@@ -21,12 +21,15 @@ public class JwtService {
         return Keys.hmacShaKeyFor(secret.getBytes());
     }
 
-    public String generateToken(String email) {
+    public String generateToken(Long userId, String email) {
 
         return Jwts.builder()
                 .subject(email)
+                .claim("userId", userId)
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 86400000))
+                .expiration(
+                        new Date(System.currentTimeMillis() + 86400000)
+                )
                 .signWith(getKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
@@ -40,6 +43,16 @@ public class JwtService {
                 .getPayload();
 
         return claims.getSubject();
+    }
+
+    public String extractUserId(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(getKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+
+        return claims.get("userId").toString();
     }
 
     public boolean isTokenValid(String token, UserDetails userDetails) {

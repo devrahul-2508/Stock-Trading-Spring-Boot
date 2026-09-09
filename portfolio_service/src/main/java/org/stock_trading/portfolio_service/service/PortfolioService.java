@@ -568,5 +568,18 @@ public class PortfolioService {
             );
         }
     }
+
+    public HoldingResponse getHolding(Long userId, String symbol) {
+
+        Holding holding = holdingRepository
+                .findByUserIdAndSymbol(userId, symbol.toUpperCase())
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Holding not found for " + symbol
+                        )
+                );
+
+        return mapToResponse(holding);
+    }
 }
 
