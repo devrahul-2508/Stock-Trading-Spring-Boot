@@ -36,3 +36,6 @@ spring:
 
 server:
   port: 8083
+
+jwt:
+  secret: ThisIsMySuperSecureJWTSecretKeyForStockTradingPlatform2026

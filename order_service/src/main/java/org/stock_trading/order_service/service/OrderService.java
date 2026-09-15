@@ -2,16 +2,20 @@ package org.stock_trading.order_service.service;
 
 import lombok.RequiredArgsConstructor;
 import org.aspectj.weaver.ast.Or;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.stock_trading.order_service.dto.CreateOrderRequest;
 import org.stock_trading.order_service.dto.OrderResponse;
 import org.stock_trading.order_service.entity.Order;
 import org.stock_trading.order_service.enums.OrderStatus;
+import org.stock_trading.order_service.enums.OrderType;
 import org.stock_trading.order_service.event.OrderExecutedEvent;
 import org.stock_trading.order_service.event.OrderPlacedEvent;
 import org.stock_trading.order_service.kafka.OrderExecutedProducer;
 import org.stock_trading.order_service.kafka.OrderKafkaProducer;
 import org.stock_trading.order_service.repository.OrderRepository;
+import org.stock_trading.order_service.specification.OrderSpecification;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -56,9 +60,42 @@ public class OrderService {
         return mapToResponse(savedOrder);
     }
 
-    public List<OrderResponse> getUserOrders(Long userId){
+    public List<OrderResponse> getUserOrders(
+            Long userId,
+            OrderStatus status,
+            OrderType orderType,
+            String symbol
+    ) {
 
-        return orderRepository.findByUserIdOrderByCreatedAtDesc(userId).stream().map(this::mapToResponse).collect(Collectors.toList());
+        Specification<Order> specification =
+                OrderSpecification.hasUserId(userId);
+
+        if (status != null) {
+            specification = specification.and(
+                    OrderSpecification.hasStatus(status)
+            );
+        }
+
+        if (orderType != null) {
+            specification = specification.and(
+                    OrderSpecification.hasOrderType(orderType)
+            );
+        }
+
+        if (symbol != null && !symbol.isBlank()) {
+            specification = specification.and(
+                    OrderSpecification.hasSymbol(symbol)
+            );
+        }
+
+        return orderRepository
+                .findAll(
+                        specification,
+                        Sort.by(Sort.Direction.DESC, "createdAt")
+                )
+                .stream()
+                .map(this::mapToResponse)
+                .toList();
     }
 
     public OrderResponse executeOrder(Long orderId) {
