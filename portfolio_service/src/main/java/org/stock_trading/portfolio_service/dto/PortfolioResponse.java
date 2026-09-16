@@ -21,4 +21,10 @@ public class PortfolioResponse {
     private BigDecimal currentValue;
 
     private BigDecimal profitLoss;
+
+    private BigDecimal realizedProfitLoss;
+
+    private BigDecimal unrealizedProfitLoss;
+
+    private BigDecimal totalProfitLoss;
 }

@@ -5,12 +5,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.stock_trading.portfolio_service.dto.HoldingResponse;
 import org.stock_trading.portfolio_service.dto.PortfolioResponse;
+import org.stock_trading.portfolio_service.dto.TradeResponse;
 import org.stock_trading.portfolio_service.entity.Holding;
 import org.stock_trading.portfolio_service.entity.ProcessedOrder;
+import org.stock_trading.portfolio_service.entity.Trade;
 import org.stock_trading.portfolio_service.event.OrderExecutedEvent;
 import org.stock_trading.portfolio_service.event.PriceUpdatedEvent;
 import org.stock_trading.portfolio_service.repository.HoldingRepository;
 import org.stock_trading.portfolio_service.repository.ProcessedOrderRepository;
+import org.stock_trading.portfolio_service.repository.TradeRepository;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -27,6 +30,8 @@ public class PortfolioService {
 
     private final ProcessedOrderRepository processedOrderRepository;
 
+    private final TradeRepository tradeRepository;
+
 
     // ============================================================
     // ORDER EXECUTION
@@ -35,15 +40,17 @@ public class PortfolioService {
     @Transactional
     public void processOrder(OrderExecutedEvent event) {
 
-        // Idempotency check
         if (processedOrderRepository.existsById(event.getOrderId())) {
 
             System.out.println(
-                    "Order already processed: " + event.getOrderId()
+                    "Order already processed: "
+                            + event.getOrderId()
             );
 
             return;
         }
+
+        BigDecimal realizedProfitLoss = BigDecimal.ZERO;
 
         if ("BUY".equalsIgnoreCase(event.getOrderType())) {
 
@@ -51,7 +58,7 @@ public class PortfolioService {
 
         } else if ("SELL".equalsIgnoreCase(event.getOrderType())) {
 
-            processSell(event);
+            realizedProfitLoss = processSell(event);
 
         } else {
 
@@ -61,7 +68,19 @@ public class PortfolioService {
             );
         }
 
-        // Mark the order as processed
+        Trade trade = Trade.builder()
+                .orderId(event.getOrderId())
+                .userId(event.getUserId())
+                .symbol(event.getSymbol().toUpperCase())
+                .orderType(event.getOrderType())
+                .quantity(event.getQuantity())
+                .executionPrice(event.getExecutionPrice())
+                .realizedProfitLoss(realizedProfitLoss)
+                .executedAt(event.getExecutedAt())
+                .build();
+
+        tradeRepository.save(trade);
+
         processedOrderRepository.save(
                 new ProcessedOrder(event.getOrderId())
         );
@@ -158,7 +177,7 @@ public class PortfolioService {
     // SELL
     // ============================================================
 
-    private void processSell(OrderExecutedEvent event) {
+    private BigDecimal processSell(OrderExecutedEvent event) {
 
         Holding holding =
                 holdingRepository
@@ -172,20 +191,28 @@ public class PortfolioService {
                                 )
                         );
 
-
-        if (holding.getQuantity()
-                < event.getQuantity()) {
+        if (holding.getQuantity() < event.getQuantity()) {
 
             throw new RuntimeException(
                     "Insufficient quantity"
             );
         }
 
+        BigDecimal averageBuyPrice =
+                holding.getAverageBuyPrice();
+
+        BigDecimal realizedProfitLoss =
+                event.getExecutionPrice()
+                        .subtract(averageBuyPrice)
+                        .multiply(
+                                BigDecimal.valueOf(
+                                        event.getQuantity()
+                                )
+                        );
 
         int remainingQuantity =
                 holding.getQuantity()
                         - event.getQuantity();
-
 
         if (remainingQuantity == 0) {
 
@@ -193,50 +220,27 @@ public class PortfolioService {
 
         } else {
 
-            /*
-             * Keep the same average buy price.
-             *
-             * Example:
-             *
-             * 10 shares
-             * Average price = 200
-             *
-             * Sell 4
-             *
-             * Remaining invested amount:
-             *
-             * 6 × 200 = 1200
-             */
-
             BigDecimal remainingInvested =
-                    holding.getAverageBuyPrice()
-                            .multiply(
-                                    BigDecimal.valueOf(
-                                            remainingQuantity
-                                    )
-                            );
+                    averageBuyPrice.multiply(
+                            BigDecimal.valueOf(
+                                    remainingQuantity
+                            )
+                    );
 
-
-            holding.setQuantity(
-                    remainingQuantity
-            );
+            holding.setQuantity(remainingQuantity);
 
             holding.setInvestedAmount(
                     remainingInvested
             );
 
-
             holdingRepository.save(holding);
         }
 
-
-        /*
-         * Whether we deleted or updated the holding,
-         * the cached portfolio is stale.
-         */
         invalidatePortfolioCache(
                 event.getUserId()
         );
+
+        return realizedProfitLoss;
     }
 
 
@@ -354,13 +358,28 @@ public class PortfolioService {
                         totalInvested
                 );
 
+        BigDecimal unrealizedProfitLoss =
+                currentValue.subtract(totalInvested);
+
+        BigDecimal realizedProfitLoss =
+                tradeRepository
+                        .findByUserIdOrderByExecutedAtDesc(userId)
+                        .stream()
+                        .map(Trade::getRealizedProfitLoss)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalProfitLoss =
+                realizedProfitLoss.add(unrealizedProfitLoss);
 
         return new PortfolioResponse(
                 userId,
                 responses,
                 totalInvested,
                 currentValue,
-                profitLoss
+                profitLoss,
+                unrealizedProfitLoss,
+                realizedProfitLoss,
+                totalProfitLoss
         );
     }
 
@@ -581,5 +600,67 @@ public class PortfolioService {
 
         return mapToResponse(holding);
     }
+
+    private void saveTrade(OrderExecutedEvent event) {
+
+        BigDecimal realizedProfitLoss = BigDecimal.ZERO;
+
+        if ("SELL".equalsIgnoreCase(event.getOrderType())) {
+
+            Holding holding = holdingRepository
+                    .findByUserIdAndSymbol(
+                            event.getUserId(),
+                            event.getSymbol()
+                    )
+                    .orElse(null);
+
+            // We need the average buy price BEFORE the sell.
+            // Therefore, this implementation should NOT fetch
+            // the holding here after processSell().
+        }
+
+        Trade trade = Trade.builder()
+                .orderId(event.getOrderId())
+                .userId(event.getUserId())
+                .symbol(event.getSymbol().toUpperCase())
+                .orderType(event.getOrderType())
+                .quantity(event.getQuantity())
+                .executionPrice(event.getExecutionPrice())
+                .realizedProfitLoss(realizedProfitLoss)
+                .executedAt(event.getExecutedAt())
+                .build();
+
+        tradeRepository.save(trade);
+    }
+
+    public List<TradeResponse> getTradeHistory(Long userId) {
+        return tradeRepository
+                .findByUserIdOrderByExecutedAtDesc(userId)
+                .stream().map(this::mapToTradeResponse).toList();
+    }
+
+    public List<TradeResponse> getTradeHistory(Long userId,String symbol) {
+      return tradeRepository
+              .findByUserIdAndSymbolOrderByExecutedAtDesc(userId,symbol)
+              .stream().map(this::mapToTradeResponse).toList();
+    }
+
+
+
+    private TradeResponse mapToTradeResponse(Trade trade){
+        return  TradeResponse.builder()
+                .id(trade.getId())
+                .orderId(trade.getOrderId())
+                .symbol(trade.getSymbol())
+                .orderType(trade.getOrderType())
+                .quantity(trade.getQuantity())
+                .executionPrice(trade.getExecutionPrice())
+                .realizedProfitLoss(
+                        trade.getRealizedProfitLoss()
+                )
+                .executedAt(trade.getExecutedAt())
+                .build();
+    }
+
 }
 
