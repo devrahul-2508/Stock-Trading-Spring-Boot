@@ -1,0 +1,40 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: user-service
+              uri: http://localhost:8081
+              predicates:
+                - Path=/auth/**
+
+            - id: market-service
+              uri: http://localhost:8082
+              predicates:
+                - Path=/stocks/**
+
+            - id: order-service
+              uri: http://localhost:8083
+              predicates:
+                - Path=/orders/**
+
+            - id: portfolio-service
+              uri: http://localhost:8084
+              predicates:
+                - Path=/portfolio/**
+
+management:
+  endpoint:
+    gateway:
+      access: read-only
+  endpoints:
+    web:
+      exposure:
+        include: "*"
